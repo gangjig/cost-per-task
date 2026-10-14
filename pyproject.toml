@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cost-per-task"
+version = "0.1.0"
+description = "Rank LLMs by cost per completed task, not price per token."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Gang Ji" }]
+keywords = ["llm", "evaluation", "cost", "benchmarking", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.scripts]
+cost-per-task = "cost_per_task.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/gangjig/cost-per-task"
+Repository = "https://github.com/gangjig/cost-per-task"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cost_per_task = ["data/*.json", "data/*.jsonl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
