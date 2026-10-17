@@ -8,7 +8,12 @@ from importlib import resources
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .analyze import DEFAULT_CACHED_FRACTION, analyze, build_insights
+from .analyze import (
+    DEFAULT_CACHE_LOSS_FRACTION,
+    DEFAULT_CACHED_FRACTION,
+    analyze,
+    build_insights,
+)
 from .prices import PriceTable, load_prices
 from .records import load_records
 from .report import render_json, render_markdown
@@ -22,9 +27,20 @@ def _sample_log_path() -> Path:
     )
 
 
-def _render(log_path: Path, prices: PriceTable, cached_fraction: float, fmt: str) -> str:
+def _render(
+    log_path: Path,
+    prices: PriceTable,
+    cached_fraction: float,
+    fmt: str,
+    cache_loss_fraction: float = DEFAULT_CACHE_LOSS_FRACTION,
+) -> str:
     attempts = load_records(log_path)
-    stats = analyze(attempts, prices, cached_fraction=cached_fraction)
+    stats = analyze(
+        attempts,
+        prices,
+        cached_fraction=cached_fraction,
+        cache_loss_fraction=cache_loss_fraction,
+    )
     insights = build_insights(stats, prices)
     if fmt == "json":
         return render_json(stats, insights)
@@ -50,6 +66,15 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_CACHED_FRACTION,
         help="fraction of the input price charged for cached input tokens "
         "when a model has no explicit cached price (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--cache-loss-fraction",
+        type=float,
+        default=DEFAULT_CACHE_LOSS_FRACTION,
+        help="for router/escalation logs: fraction of a task's accumulated "
+        "context re-billed at the destination model's full input price each "
+        "time the task switches models mid-session, 0-1 (default: "
+        "%(default)s = off)",
     )
     parser.add_argument(
         "--format",
@@ -111,7 +136,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
 
         log_path = Path(args.log) if args.command == "analyze" else _sample_log_path()
-        text = _render(log_path, prices, args.cached_fraction, args.format)
+        text = _render(
+            log_path,
+            prices,
+            args.cached_fraction,
+            args.format,
+            cache_loss_fraction=args.cache_loss_fraction,
+        )
         _print_or_write(text, args.output)
         return 0
     except (OSError, ValueError) as exc:

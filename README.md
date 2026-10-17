@@ -48,6 +48,7 @@ pip install cost-per-task        # or from a clone: pip install .
 cost-per-task demo                       # analyze the bundled sample log
 cost-per-task analyze runs.jsonl         # your harness log -> ranked table
 cost-per-task analyze runs.jsonl --format json --output report.json
+cost-per-task analyze router.jsonl --cache-loss-fraction 1  # price mid-session model switches
 cost-per-task prices                     # show the price table in effect
 cost-per-task analyze runs.jsonl --prices my-prices.json   # override prices
 ```
@@ -97,9 +98,58 @@ invocation for a single task, as produced by your harness:
 - **Cached tokens** are billed at the model's cached-input price when the
   price table lists one; otherwise at `--cached-fraction` (default `0.5`)
   of the regular input price.
+- **Model switches re-bill context** (opt-in). In a router/escalation log,
+  one `task_id` is one session handed between models — and a model cannot
+  reuse another model's prompt cache. `--cache-loss-fraction` charges the
+  destination model for re-reading the accumulated context; see
+  [Model switches and cache loss](#model-switches-and-cache-loss).
 - **Ranking** is strictly by cost per successful task. Total cost and
   per-attempt cost are reported for context but never used to rank — both
   mislead in opposite directions.
+
+## Model switches and cache loss
+
+The ranking above prices each model on its own attempts. That misses a
+cost hiding in *router* and *escalation* setups, where a cheap model
+takes the first shot at a task and a stronger model takes over
+mid-session when it fails: **the new model cannot reuse the previous
+model's prompt cache.** The context accumulated so far has to be ingested
+again at the new model's full input price — and the pricier the model you
+escalate to, the more that re-read costs.
+
+For logs where one `task_id` is one session handed between models, turn
+it on:
+
+```bash
+cost-per-task analyze router.jsonl --cache-loss-fraction 1
+```
+
+(API equivalent: `analyze(attempts, prices, cache_loss_fraction=1.0)`.)
+
+Semantics: attempts are read in log order; whenever a task's attempt
+names a different model than the task's previous attempt, that is a
+switch. The destination model is charged — once per switch — the sum of
+`input_tokens` over the task's earlier attempts (the accumulated
+context) at its own full, uncached input price, scaled by the fraction
+(0–1; use less than 1 if only part of the context would realistically
+have stayed cached). The charge is included in the model's total cost
+and cost per successful task, broken out as `cache_loss_cost` (JSON:
+`cache_loss_cost_usd`, with the switch count in `switches_in`), and
+flagged in the insights when nonzero.
+
+It is **off by default** (fraction 0) on purpose: the log format carries
+no session marker, and paired-comparison logs reuse the same task ids
+across models that each ran independently — charging there would tax
+head-to-head comparisons for switches that never happened. At fraction 0
+every result is exactly what earlier versions produced.
+
+Motivation: history-aware routing research reported in Latent Space
+AINews ([2026-10-16](https://www.latent.space/p/ainews-high-taste-testers-ep-1))
+found that giving a router the session history helps, but that once
+cache costs are counted, switching up to the expensive model mid-session
+is often not worth it. This option lets you run the same arithmetic on
+your own logs: "start cheap, escalate later" stops looking cheap the
+moment the re-read is billed.
 
 ## Price table
 
@@ -143,7 +193,7 @@ python scripts/generate_sample.py
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e . pytest
-python -m pytest        # 35 tests, fully offline
+python -m pytest        # 49 tests, fully offline
 ```
 
 ## License

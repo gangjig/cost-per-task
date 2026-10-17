@@ -113,3 +113,16 @@ def attempt_cost(attempt: Attempt, price: Price, cached_fraction: float = 0.5) -
         + cached * cached_rate
         + attempt.output_tokens * price.output_per_m
     ) / 1_000_000.0
+
+
+def cache_loss_charge(
+    context_tokens: int, price: Price, cache_loss_fraction: float = 1.0
+) -> float:
+    """USD charged when a session switches INTO the model `price` describes.
+
+    A different model's prompt cache cannot be reused, so the context the
+    session has accumulated so far must be ingested again at this model's
+    full (uncached) input price. `cache_loss_fraction` scales the charge:
+    1.0 re-bills the whole accumulated context; 0.0 disables the charge.
+    """
+    return context_tokens * price.input_per_m * cache_loss_fraction / 1_000_000.0

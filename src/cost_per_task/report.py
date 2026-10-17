@@ -57,6 +57,8 @@ def stats_to_dict(stats: list[ModelStats], insights: list[str]) -> dict:
                 "attempts": s.attempts,
                 "avg_attempts_per_task": round(s.avg_attempts_per_task, 3),
                 "total_cost_usd": round(s.total_cost, 6),
+                "cache_loss_cost_usd": round(s.cache_loss_cost, 6),
+                "switches_in": s.switches_in,
                 "cost_per_successful_task_usd": (
                     round(s.cost_per_successful_task, 6)
                     if s.cost_per_successful_task is not None

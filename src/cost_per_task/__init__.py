@@ -4,7 +4,7 @@ from .analyze import ModelStats, analyze, build_insights
 from .prices import Price, PriceTable, load_prices
 from .records import Attempt, load_records
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Attempt",
