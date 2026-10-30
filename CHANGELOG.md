@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0 — 2026-10-30
+
+- **Handoff curves: find the switch point, not just the switch cost.**
+  New `handoff` subcommand (plus `demo-handoff` on a bundled experiment
+  log) and `analyze_handoff()` API. Records gain an optional `run_id`
+  identifying one run of a handoff experiment — the same tasks run
+  repeatedly, each run handing off from a strong model to a cheap one
+  after a different number of steps. Runs are aggregated by switch point
+  (0 = all cheap, `never` = all strong): runs, success rate, total cost,
+  cost per run, and cost per successful run per point, with a recommended
+  point — the lowest cost per successful run among points whose success
+  rate is within `--tolerance` (default 0.05) of the best. Cache-loss
+  accounting applies at switches when opted in, with the same semantics
+  as `analyze`. Unclassifiable runs (a third model, or the escalation
+  direction) are counted as excluded; a record without `run_id` fails
+  loudly. In the bundled sample (12 tasks × 5 switch points,
+  gpt-5 → gpt-5-mini), handing off after 2 steps matches never switching
+  on success (92%) at 52% lower cost per successful run.
+  Motivated by the AgentBaton results reported in Latent Space AINews
+  (2026-10-30) — a single mid-task handoff cut API cost by 65.9%:
+  https://www.latent.space/p/ainews-building-aie-code-the-top-coding-agent-conference/
+
 ## 0.2.0 — 2026-10-17
 
 - **Cache-loss accounting for router/escalation logs (opt-in).**

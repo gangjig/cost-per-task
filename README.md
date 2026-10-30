@@ -49,6 +49,7 @@ cost-per-task demo                       # analyze the bundled sample log
 cost-per-task analyze runs.jsonl         # your harness log -> ranked table
 cost-per-task analyze runs.jsonl --format json --output report.json
 cost-per-task analyze router.jsonl --cache-loss-fraction 1  # price mid-session model switches
+cost-per-task demo-handoff --from-model gpt-5 --to-model gpt-5-mini  # handoff curve on the bundled experiment log
 cost-per-task prices                     # show the price table in effect
 cost-per-task analyze runs.jsonl --prices my-prices.json   # override prices
 ```
@@ -83,6 +84,7 @@ invocation for a single task, as produced by your harness:
 | `cached_input_tokens` | no (0) | Subset of `input_tokens` served from the prompt cache. |
 | `latency_s` | no (0) | Wall-clock seconds for the attempt. |
 | `attempts` | no | Informational only: 1-based ordinal of the attempt within the task. Grouping never relies on it. |
+| `run_id` | no | Identifies one *run* (one session) when the same task was executed several times — e.g. a handoff experiment that ran each task under several switch points. Ignored by `analyze`; required by `handoff`. |
 
 ## Semantics (the decisions that matter)
 
@@ -151,6 +153,61 @@ is often not worth it. This option lets you run the same arithmetic on
 your own logs: "start cheap, escalate later" stops looking cheap the
 moment the re-read is billed.
 
+## Handoff curves: when to switch models mid-task
+
+Cache loss prices a switch you already made. The prior question is
+*where* to switch: start every task on a strong model and hand off to a
+cheap one too early, and the cheap model fumbles tasks the strong model
+had already set up; hand off too late (or never) and you paid strong-model
+prices for steps the cheap model could have finished. The answer is an
+experiment, not a guess: run the same tasks repeatedly, each run handing
+off after a different number of steps, then aggregate by switch point.
+
+That is what `handoff` does. Records must carry `run_id` (one run = one
+task under one switch point — see the format table above):
+
+```bash
+cost-per-task handoff experiment.jsonl --from-model gpt-5 --to-model gpt-5-mini
+cost-per-task demo-handoff --from-model gpt-5 --to-model gpt-5-mini  # bundled sample
+```
+
+The bundled experiment runs 12 tasks × 5 switch points (60 runs), and the
+curve makes the tradeoff concrete:
+
+| Switch after | Runs | Success rate | Total cost | Cost / run | Cost / successful run |
+|---|---:|---:|---:|---:|---:|
+| 0 | 12 | 58% | $0.2178 | $0.0182 | $0.0311 |
+| 1 | 12 | 83% | $0.3757 | $0.0313 | $0.0376 |
+| 2 **(recommended)** | 12 | 92% | $0.5377 | $0.0448 | $0.0489 |
+| 3 | 12 | 92% | $0.6982 | $0.0582 | $0.0635 |
+| never | 12 | 92% | $1.1164 | $0.0930 | $0.1015 |
+
+Semantics:
+
+- **Switch point** = the number of leading attempts served by the
+  from-model before the first to-model attempt in that run. `0` is the
+  all-cheap endpoint, `never` the all-strong one; switch-backs after the
+  first switch are billed but do not move the point.
+- A run **succeeds** if any of its attempts succeeded; its cost is the
+  sum of its attempts, plus the cache-loss charge at each switch when
+  `--cache-loss-fraction` is set (same accounting as `analyze`).
+- **Recommendation**: among points whose success rate is within
+  `--tolerance` (default 0.05) of the best observed rate, the lowest cost
+  per successful run. In the sample, handing off after 2 steps matches
+  never switching on success (92%) at **52% lower cost per successful
+  run**.
+- Runs that cannot be classified for the pair (a third model appears, or
+  the run goes cheap → strong — the escalation direction) are counted in
+  the report as excluded, never silently dropped; a record without
+  `run_id` fails loudly.
+
+Motivation: the AgentBaton results reported in Latent Space AINews
+([2026-10-30](https://www.latent.space/p/ainews-building-aie-code-the-top-coding-agent-conference/))
+— a single mid-task handoff from a strong model to a cheap one cut API
+cost by 65.9%. Savings like that live or die on *where* the handoff
+happens; this report finds that point from your own experiment logs
+instead of someone else's workload.
+
 ## Price table
 
 The bundled table (`src/cost_per_task/data/prices.json`) covers a handful
@@ -177,6 +234,11 @@ and retries that lean on the prompt cache. Regenerate it any time:
 python scripts/generate_sample.py
 ```
 
+`src/cost_per_task/data/sample_handoff.jsonl` is the handoff-experiment
+sample used by `demo-handoff`: 12 tasks × 5 switch points of
+gpt-5 → gpt-5-mini, every attempt carrying a `run_id`
+(`scripts/generate_handoff_sample.py`).
+
 ## Limitations
 
 - **Bring your own logs.** This tool does not call models or run evals; it
@@ -193,7 +255,7 @@ python scripts/generate_sample.py
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e . pytest
-python -m pytest        # 49 tests, fully offline
+python -m pytest        # 65 tests, fully offline
 ```
 
 ## License

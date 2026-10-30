@@ -1,4 +1,4 @@
-"""Command line interface: cost-per-task {analyze, prices, demo}."""
+"""Command line interface: cost-per-task {analyze, handoff, prices, demo}."""
 
 from __future__ import annotations
 
@@ -14,9 +14,19 @@ from .analyze import (
     analyze,
     build_insights,
 )
+from .handoff import (
+    DEFAULT_TOLERANCE,
+    analyze_handoff,
+    build_handoff_insights,
+)
 from .prices import PriceTable, load_prices
 from .records import load_records
-from .report import render_json, render_markdown
+from .report import (
+    render_handoff_json,
+    render_handoff_markdown,
+    render_json,
+    render_markdown,
+)
 
 
 def _sample_log_path() -> Path:
@@ -25,6 +35,42 @@ def _sample_log_path() -> Path:
             resources.files("cost_per_task").joinpath("data/sample_runs.jsonl")
         )
     )
+
+
+def _sample_handoff_log_path() -> Path:
+    return Path(
+        str(
+            resources.files("cost_per_task").joinpath(
+                "data/sample_handoff.jsonl"
+            )
+        )
+    )
+
+
+def _render_handoff(
+    log_path: Path,
+    prices: PriceTable,
+    from_model: str,
+    to_model: str,
+    cached_fraction: float,
+    fmt: str,
+    cache_loss_fraction: float,
+    tolerance: float,
+) -> str:
+    attempts = load_records(log_path)
+    report = analyze_handoff(
+        attempts,
+        prices,
+        from_model,
+        to_model,
+        cached_fraction=cached_fraction,
+        cache_loss_fraction=cache_loss_fraction,
+        tolerance=tolerance,
+    )
+    insights = build_handoff_insights(report)
+    if fmt == "json":
+        return render_handoff_json(report, insights)
+    return render_handoff_markdown(report, insights)
 
 
 def _render(
@@ -85,6 +131,27 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", metavar="FILE", help="write to FILE instead of stdout")
 
 
+def _add_handoff_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--from-model",
+        required=True,
+        help="the strong model each run starts on",
+    )
+    parser.add_argument(
+        "--to-model",
+        required=True,
+        help="the cheap model each run hands off to",
+    )
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=DEFAULT_TOLERANCE,
+        help="a switch point is eligible for the recommendation when its "
+        "success rate is within this fraction of the best observed rate "
+        "(default: %(default)s)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cost-per-task",
@@ -96,8 +163,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_analyze.add_argument("log", help="path to the run log (JSONL, one attempt per line)")
     _add_common(p_analyze)
 
+    p_handoff = sub.add_parser(
+        "handoff",
+        help="handoff curve: aggregate a handoff-experiment log by "
+        "switch point (records must carry run_id)",
+    )
+    p_handoff.add_argument("log", help="path to the run log (JSONL, one attempt per line)")
+    _add_handoff_args(p_handoff)
+    _add_common(p_handoff)
+
     p_demo = sub.add_parser("demo", help="analyze the bundled sample run log")
     _add_common(p_demo)
+
+    p_demo_handoff = sub.add_parser(
+        "demo-handoff", help="run the handoff curve on the bundled sample log"
+    )
+    _add_handoff_args(p_demo_handoff)
+    _add_common(p_demo_handoff)
 
     p_prices = sub.add_parser("prices", help="show the price table in effect")
     p_prices.add_argument(
@@ -133,6 +215,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if prices.note:
                 lines += ["", f"_{prices.note}_"]
             sys.stdout.write("\n".join(lines) + "\n")
+            return 0
+
+        if args.command in ("handoff", "demo-handoff"):
+            log_path = (
+                Path(args.log)
+                if args.command == "handoff"
+                else _sample_handoff_log_path()
+            )
+            text = _render_handoff(
+                log_path,
+                prices,
+                args.from_model,
+                args.to_model,
+                args.cached_fraction,
+                args.format,
+                cache_loss_fraction=args.cache_loss_fraction,
+                tolerance=args.tolerance,
+            )
+            _print_or_write(text, args.output)
             return 0
 
         log_path = Path(args.log) if args.command == "analyze" else _sample_log_path()

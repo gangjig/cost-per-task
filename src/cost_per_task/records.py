@@ -18,6 +18,10 @@ Semantics (see README for the full discussion):
 * `attempts` is optional and informational only: when present it is the
   1-based ordinal of the attempt within the task. Grouping never relies
   on it.
+* `run_id` is optional and identifies one *run* (one session) when the
+  same task was executed several times -- e.g. a handoff experiment that
+  ran each task under several switch points. The main analysis ignores
+  it; handoff analysis (`cost_per_task.handoff`) requires it.
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ class Attempt:
     cached_input_tokens: int = 0
     latency_s: float = 0.0
     attempts: Optional[int] = None
+    run_id: Optional[str] = None
 
     @property
     def total_tokens(self) -> int:
@@ -63,6 +68,9 @@ class Attempt:
             latency_s=float(data.get("latency_s", 0.0)),
             attempts=(
                 int(data["attempts"]) if data.get("attempts") is not None else None
+            ),
+            run_id=(
+                str(data["run_id"]) if data.get("run_id") is not None else None
             ),
         )
         for name in ("input_tokens", "output_tokens", "cached_input_tokens"):
