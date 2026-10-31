@@ -208,6 +208,55 @@ cost by 65.9%. Savings like that live or die on *where* the handoff
 happens; this report finds that point from your own experiment logs
 instead of someone else's workload.
 
+## Cache scenarios: what the prompt cache is worth
+
+Every report above bills cached tokens at the cached rate, as recorded
+— one number that hides how much of the bill the prompt cache is
+carrying. `cache` recomputes the same log under three scenarios:
+
+```bash
+cost-per-task cache runs.jsonl
+cost-per-task demo-cache  # bundled sample
+```
+
+- **With cache** — as recorded: cached input tokens at the cached rate.
+- **No cache** — every cached token re-billed at the full input rate:
+  what identical traffic would cost with prompt caching off.
+- **One bust** — exactly one full cache invalidation per session: the
+  session's largest cache read is re-billed at the full input rate
+  (the accumulated prefix has to be re-ingested), every other attempt
+  bills as recorded. A worst-case single bust, placed where it hurts
+  most.
+
+Sessions are attempts sharing a `run_id` when present, else a
+`task_id`, in log order — the unit caching actually works on. The
+bundled sample (10 sessions × 8 attempts, contexts growing ~10K tokens
+per step, nearly all of it cache-served from the second step on) shows
+the shape of the answer:
+
+| Model | With cache | No cache | No-cache × | One bust | Bust adds |
+|---|---:|---:|---:|---:|---:|
+| claude-sonnet-4-5 | $1.8713 | $5.5940 | 2.99x | $2.8116 | +50.2% |
+| gpt-5 | $0.8042 | $2.3505 | 2.92x | $1.1946 | +48.6% |
+| **All models** | $2.6755 | $7.9445 | 2.97x | $4.0062 | +49.7% |
+
+Read it as two questions. The no-cache column asks *how much of this
+bill is the cache paying for* — if the multiplier is large, cache hit
+rate matters more than per-token price, and a caching regression will
+swamp any model-price win. The bust column asks *how fragile that is*:
+one invalidation per session, at the worst point, adds half again to
+this sample's bill. A log that records no cached tokens at all gets a
+third answer — all three scenarios coincide, which usually means the
+cache is not engaging in the first place.
+
+Motivation: an Agent Arena cost analysis reported in Latent Space
+AINews
+([2026-10-31](https://www.latent.space/p/ainews-google-admits-ai-mode-hurts-search-revenue-15-500b-drop-worst-since-2004-ipo-ai-bear-market-c/))
+— across 26K sessions, top agent tasks cost 3.6× more with prompt
+caching off, and a single cache invalidation raised the bill by ~5%.
+The main analysis could not show either number; this report prices
+both from your own logs.
+
 ## Price table
 
 The bundled table (`src/cost_per_task/data/prices.json`) covers a handful
@@ -239,6 +288,12 @@ sample used by `demo-handoff`: 12 tasks × 5 switch points of
 gpt-5 → gpt-5-mini, every attempt carrying a `run_id`
 (`scripts/generate_handoff_sample.py`).
 
+`src/cost_per_task/data/sample_cache.jsonl` is the cache-scenario
+sample used by `demo-cache`: 10 sessions × 8 attempts (gpt-5 and
+claude-sonnet-4-5), contexts growing ~10K tokens per step with nearly
+all of the accumulated context cache-served
+(`scripts/generate_cache_sample.py`).
+
 ## Limitations
 
 - **Bring your own logs.** This tool does not call models or run evals; it
@@ -255,7 +310,7 @@ gpt-5 → gpt-5-mini, every attempt carrying a `run_id`
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e . pytest
-python -m pytest        # 65 tests, fully offline
+python -m pytest        # 80 tests, fully offline
 ```
 
 ## License

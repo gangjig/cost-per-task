@@ -6,6 +6,7 @@ import json
 from typing import Optional
 
 from .analyze import ModelStats
+from .cache import CacheModelRow, CacheReport
 from .handoff import HandoffPoint, HandoffReport
 
 
@@ -155,3 +156,104 @@ def handoff_to_dict(report: HandoffReport, insights: list[str]) -> dict:
 
 def render_handoff_json(report: HandoffReport, insights: list[str]) -> str:
     return json.dumps(handoff_to_dict(report, insights), indent=2) + "\n"
+
+
+def _multiplier(row: CacheModelRow) -> str:
+    mult = row.no_cache_multiplier
+    if mult is None:
+        return "—"
+    return f"{mult:.2f}x"
+
+
+def _pct(value: Optional[float]) -> str:
+    if value is None:
+        return "—"
+    return f"+{value:.1%}"
+
+
+def render_cache_markdown(report: CacheReport, insights: list[str]) -> str:
+    lines = [
+        "# Cache scenarios",
+        "",
+        f"{report.n_sessions} session(s), {report.n_attempts} attempt(s). "
+        f"One bust = each session's largest cache read re-billed at the "
+        f"full input rate ({report.n_busted_sessions} session(s) had a "
+        f"cache read to bust).",
+        "",
+        "| Model | Sessions | Attempts | With cache | No cache | "
+        "No-cache x | One bust | Bust adds |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for r in report.rows:
+        lines.append(
+            f"| {r.model} | {r.sessions} | {r.attempts} | "
+            f"{_money(r.with_cache_cost)} | {_money(r.no_cache_cost)} | "
+            f"{_multiplier(r)} | {_money(r.one_bust_cost)} | "
+            f"{_pct(r.bust_uplift_pct)} |"
+        )
+    if len(report.rows) > 1:
+        total_mult = (
+            f"{report.no_cache_total / report.with_cache_total:.2f}x"
+            if report.with_cache_total > 0
+            else "—"
+        )
+        total_bust_pct = (
+            f"+{(report.one_bust_total - report.with_cache_total) / report.with_cache_total:.1%}"
+            if report.with_cache_total > 0
+            else "—"
+        )
+        lines.append(
+            f"| **All models** | {report.n_sessions} | "
+            f"{report.n_attempts} | {_money(report.with_cache_total)} | "
+            f"{_money(report.no_cache_total)} | {total_mult} | "
+            f"{_money(report.one_bust_total)} | {total_bust_pct} |"
+        )
+    if insights:
+        lines += ["", "## Insights", ""]
+        lines += [f"- {text}" for text in insights]
+    return "\n".join(lines) + "\n"
+
+
+def cache_to_dict(report: CacheReport, insights: list[str]) -> dict:
+    def row_dict(r: CacheModelRow) -> dict:
+        return {
+            "model": r.model,
+            "sessions": r.sessions,
+            "attempts": r.attempts,
+            "cached_tokens": r.cached_tokens,
+            "with_cache_cost_usd": round(r.with_cache_cost, 6),
+            "no_cache_cost_usd": round(r.no_cache_cost, 6),
+            "one_bust_cost_usd": round(r.one_bust_cost, 6),
+            "cache_savings_usd": round(r.cache_savings, 6),
+            "cache_savings_share": round(r.cache_savings_share, 4),
+            "no_cache_multiplier": (
+                round(r.no_cache_multiplier, 4)
+                if r.no_cache_multiplier is not None
+                else None
+            ),
+            "bust_uplift_usd": round(r.bust_uplift, 6),
+            "bust_uplift_pct": (
+                round(r.bust_uplift_pct, 4)
+                if r.bust_uplift_pct is not None
+                else None
+            ),
+        }
+
+    return {
+        "metric": "cache_scenarios_usd",
+        "n_sessions": report.n_sessions,
+        "n_attempts": report.n_attempts,
+        "n_busted_sessions": report.n_busted_sessions,
+        "totals": {
+            "with_cache_cost_usd": round(report.with_cache_total, 6),
+            "no_cache_cost_usd": round(report.no_cache_total, 6),
+            "one_bust_cost_usd": round(report.one_bust_total, 6),
+            "cached_tokens": report.total_cached_tokens,
+        },
+        "models": [row_dict(r) for r in report.rows],
+        "insights": insights,
+    }
+
+
+def render_cache_json(report: CacheReport, insights: list[str]) -> str:
+    return json.dumps(cache_to_dict(report, insights), indent=2) + "\n"

@@ -1,4 +1,5 @@
-"""Command line interface: cost-per-task {analyze, handoff, prices, demo}."""
+"""Command line interface: cost-per-task {analyze, handoff, cache,
+prices, demo}."""
 
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from .analyze import (
     analyze,
     build_insights,
 )
+from .cache import analyze_cache_scenarios, build_cache_insights
 from .handoff import (
     DEFAULT_TOLERANCE,
     analyze_handoff,
@@ -22,6 +24,8 @@ from .handoff import (
 from .prices import PriceTable, load_prices
 from .records import load_records
 from .report import (
+    render_cache_json,
+    render_cache_markdown,
     render_handoff_json,
     render_handoff_markdown,
     render_json,
@@ -45,6 +49,30 @@ def _sample_handoff_log_path() -> Path:
             )
         )
     )
+
+
+def _sample_cache_log_path() -> Path:
+    return Path(
+        str(
+            resources.files("cost_per_task").joinpath("data/sample_cache.jsonl")
+        )
+    )
+
+
+def _render_cache(
+    log_path: Path,
+    prices: PriceTable,
+    cached_fraction: float,
+    fmt: str,
+) -> str:
+    attempts = load_records(log_path)
+    report = analyze_cache_scenarios(
+        attempts, prices, cached_fraction=cached_fraction
+    )
+    insights = build_cache_insights(report)
+    if fmt == "json":
+        return render_cache_json(report, insights)
+    return render_cache_markdown(report, insights)
 
 
 def _render_handoff(
@@ -100,7 +128,8 @@ def _print_or_write(text: str, output: Optional[str]) -> None:
         sys.stdout.write(text)
 
 
-def _add_common(parser: argparse.ArgumentParser) -> None:
+def _add_pricing_args(parser: argparse.ArgumentParser) -> None:
+    """Price-table and output options shared by every analysis command."""
     parser.add_argument(
         "--prices",
         metavar="FILE",
@@ -114,6 +143,17 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         "when a model has no explicit cached price (default: %(default)s)",
     )
     parser.add_argument(
+        "--format",
+        choices=("md", "json"),
+        default="md",
+        help="output format (default: md)",
+    )
+    parser.add_argument("--output", metavar="FILE", help="write to FILE instead of stdout")
+
+
+def _add_common(parser: argparse.ArgumentParser) -> None:
+    _add_pricing_args(parser)
+    parser.add_argument(
         "--cache-loss-fraction",
         type=float,
         default=DEFAULT_CACHE_LOSS_FRACTION,
@@ -122,13 +162,6 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         "time the task switches models mid-session, 0-1 (default: "
         "%(default)s = off)",
     )
-    parser.add_argument(
-        "--format",
-        choices=("md", "json"),
-        default="md",
-        help="output format (default: md)",
-    )
-    parser.add_argument("--output", metavar="FILE", help="write to FILE instead of stdout")
 
 
 def _add_handoff_args(parser: argparse.ArgumentParser) -> None:
@@ -181,6 +214,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_handoff_args(p_demo_handoff)
     _add_common(p_demo_handoff)
 
+    p_cache = sub.add_parser(
+        "cache",
+        help="cache scenarios: recompute a log's cost with caching as "
+        "recorded, with caching off, and with one cache invalidation "
+        "per session",
+    )
+    p_cache.add_argument("log", help="path to the run log (JSONL, one attempt per line)")
+    _add_pricing_args(p_cache)
+
+    p_demo_cache = sub.add_parser(
+        "demo-cache", help="run the cache scenarios on the bundled sample log"
+    )
+    _add_pricing_args(p_demo_cache)
+
     p_prices = sub.add_parser("prices", help="show the price table in effect")
     p_prices.add_argument(
         "--prices",
@@ -232,6 +279,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 args.format,
                 cache_loss_fraction=args.cache_loss_fraction,
                 tolerance=args.tolerance,
+            )
+            _print_or_write(text, args.output)
+            return 0
+
+        if args.command in ("cache", "demo-cache"):
+            log_path = (
+                Path(args.log)
+                if args.command == "cache"
+                else _sample_cache_log_path()
+            )
+            text = _render_cache(
+                log_path, prices, args.cached_fraction, args.format
             )
             _print_or_write(text, args.output)
             return 0

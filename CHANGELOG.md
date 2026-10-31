@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 — 2026-10-31
+
+- **Cache scenarios: what prompt caching is worth, and what losing it
+  costs.** New `cache` subcommand (plus `demo-cache` on a bundled
+  session log) and `analyze_cache_scenarios()` API. The log is
+  recomputed per model under three scenarios: as recorded (cached
+  tokens at the cached rate), with caching off (every cached token
+  re-billed at the full input rate), and with one full cache
+  invalidation per session (the session's largest cache read re-billed
+  at the full input rate — a worst-case single bust). Sessions are
+  attempts sharing a `run_id`, else a `task_id`, in log order. The
+  report shows the no-cache multiplier and the bust uplift per model,
+  so "how much of the bill is the cache paying for" and "how much
+  rides on the cache surviving a session" become numbers instead of
+  vibes; a log with no cached tokens reports all three scenarios
+  coinciding. In the bundled sample (10 sessions × 8 attempts), the
+  same traffic costs 2.97x as much with caching off, and one
+  worst-case bust per session adds +49.7%.
+  Motivated by an Agent Arena cost analysis reported in Latent Space
+  AINews (2026-10-31) — 26K sessions; top agent tasks cost 3.6x more
+  without prompt caching, and a single cache invalidation raised the
+  bill by ~5%:
+  https://www.latent.space/p/ainews-google-admits-ai-mode-hurts-search-revenue-15-500b-drop-worst-since-2004-ipo-ai-bear-market-c/
+
 ## 0.3.0 — 2026-10-30
 
 - **Handoff curves: find the switch point, not just the switch cost.**
