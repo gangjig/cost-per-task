@@ -313,6 +313,25 @@ pip install -e . pytest
 python -m pytest        # 80 tests, fully offline
 ```
 
+## Build your own
+
+This repository is small enough to regenerate from a prompt. Paste the
+following into an LLM and it should produce a closely similar project:
+
+> Write a small, zero-dependency Python command-line tool that ranks
+> LLMs by cost per successful task instead of price per token. It reads
+> run logs from the user's own evaluation harness, counting every
+> attempt including retries and failures, and produces a ranked Markdown
+> and JSON report with success rate, attempts, total spend, cost per
+> successful task, median latency, and tokens per task, explicitly
+> calling out the ranking flip when the per-token-cheapest model loses
+> once its failures and retries are counted. The tool understands
+> prompt-cache discounts, can show what the cache is worth under
+> different scenarios, and can draw handoff curves for deciding when
+> switching models mid-task pays off. Include a bundled demo in which
+> the model with the lowest total spend still loses, because a large
+> share of its tasks never complete.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Gang Ji.
